@@ -205,6 +205,34 @@
                     ballVelocity: new THREE.Vector3(0, 0, 0),
                     cooldown: 0
                 };
+
+                // Attention System
+                this.attentionState = 'NONE'; // NONE, WATCHING, CENTERED
+                this.attentionTimeout = 0;
+            }
+
+            handleUserClick() {
+                const now = Date.now();
+                this.lastInteractionTime = now;
+
+                if (this.attentionState === 'NONE') {
+                    // First Click: Stop and Look
+                    this.attentionState = 'WATCHING';
+                    this.currentPlan = null; // Stop AI
+                    this.isThinking = false;
+                    this.attentionTimeout = now + 5000;
+                    
+                    this.chatElement.innerText = "Yes?";
+                    this.chatElement.classList.add('visible');
+                } else if (this.attentionState === 'WATCHING') {
+                    // Second Click: Come to Center
+                    this.attentionState = 'CENTERED';
+                    this.attentionTimeout = now + 5000;
+                    this.chatElement.innerText = "I'm listening.";
+                } else {
+                    // Already Centered? Refresh timer
+                    this.attentionTimeout = now + 5000;
+                }
             }
 
             // NEW: Physics & Sensor Update Loop (Called every frame)
@@ -481,6 +509,20 @@
             }
 
             getInstruction(time) {
+                // Check Attention Timeout
+                if (this.attentionState !== 'NONE') {
+                    if (Date.now() > this.attentionTimeout) {
+                        this.attentionState = 'NONE';
+                        this.chatElement.classList.remove('visible');
+                    } else {
+                        // Return Override Instruction
+                        return { 
+                            state: 'override', 
+                            mode: this.attentionState 
+                        };
+                    }
+                }
+
                 this.consultTheDust(time);
                 
                 // If we are in the "Wait Before" phase of a plan
@@ -527,28 +569,33 @@
             brain.recordInteraction(); // Notify brain of activity
         });
 
-        // Click to Kick (User Interaction)
+        // Click to Kick or Attend (User Interaction)
         window.addEventListener('click', (event) => {
-            if (!brain.toy.active) return;
-
             raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObject(ball);
 
-            if (intersects.length > 0) {
-                // User kicked the ball!
-                const kickDir = new THREE.Vector3(
-                    (Math.random() - 0.5),
-                    (Math.random() - 0.5),
-                    (Math.random() - 0.5)
-                ).normalize();
-                
-                // Stronger kick from user
-                brain.toy.ballVelocity = kickDir.multiplyScalar(0.3);
-                brain.toy.kickCount++; // Counts towards the game
-                
-                // AI notices immediately
-                brain.currentPlan = null;
-                brain.isThinking = false;
+            // 1. Check Ball Click
+            if (brain.toy.active) {
+                const ballIntersects = raycaster.intersectObject(ball);
+                if (ballIntersects.length > 0) {
+                    // User kicked the ball!
+                    const kickDir = new THREE.Vector3(
+                        (Math.random() - 0.5),
+                        (Math.random() - 0.5),
+                        (Math.random() - 0.5)
+                    ).normalize();
+                    
+                    brain.toy.ballVelocity = kickDir.multiplyScalar(0.3);
+                    brain.toy.kickCount++; 
+                    brain.currentPlan = null;
+                    brain.isThinking = false;
+                    return; // Ball click takes precedence
+                }
+            }
+
+            // 2. Check Icon Click
+            const iconIntersects = raycaster.intersectObject(icon, true);
+            if (iconIntersects.length > 0) {
+                brain.handleUserClick();
             }
         });
 
@@ -556,30 +603,26 @@
         function animate(time) {
             requestAnimationFrame(animate);
             
-            // Raycasting for hover effect
-            raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObject(icon, true);
-            const isHovered = intersects.length > 0;
+            // AI Control: Consult the Dust
+            brain.update(time, icon.position); 
+            const instruction = brain.getInstruction(time);
 
-            if (isHovered) {
-                // User Override: Smoothly rotate to face viewer
+            if (instruction.state === 'override') {
+                // User Attention Override
+                // Face Camera
                 const targetX = Math.round(icon.rotation.x / (Math.PI * 2)) * (Math.PI * 2);
                 const targetY = Math.round(icon.rotation.y / (Math.PI * 2)) * (Math.PI * 2);
-                
                 icon.rotation.x = THREE.MathUtils.lerp(icon.rotation.x, targetX, 0.1);
                 icon.rotation.y = THREE.MathUtils.lerp(icon.rotation.y, targetY, 0.1);
                 icon.rotation.z = THREE.MathUtils.lerp(icon.rotation.z, 0, 0.1);
-                
-                // Reset position/scale on hover
-                icon.position.lerp(new THREE.Vector3(0,0,0), 0.1);
                 icon.scale.lerp(new THREE.Vector3(1,1,1), 0.1);
 
-            } else {
-                // AI Control: Consult the Dust
-                brain.update(time, icon.position); // Physics & Sensors
-                const instruction = brain.getInstruction(time);
-
-                if (instruction.state === 'thinking') {
+                if (instruction.mode === 'CENTERED') {
+                    icon.position.lerp(new THREE.Vector3(0,0,0), 0.1);
+                } 
+                // If WATCHING, we just stop moving (no position update)
+            }
+            else if (instruction.state === 'thinking') {
                     // Shimmer/Vibrate while thinking
                     icon.rotation.z += 0.05; 
                     // Maybe pulse scale slightly
@@ -617,8 +660,6 @@
                     const newH = THREE.MathUtils.lerp(currentParams.h, targetHSL.h, 0.05);
                     icon.material.color.setHSL(newH, targetHSL.s, targetHSL.l);
                 }
-            }
-
             renderer.render(scene, camera);
         }
         animate(0);
