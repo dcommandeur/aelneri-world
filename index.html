@@ -123,6 +123,44 @@
             transform-origin: left;
             transition: width 0.1s linear;
         }
+
+        #ui-toggle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(100px, -50%); /* Center right relative to screen center */
+            background: rgba(0, 0, 0, 0.5);
+            color: rgba(255, 255, 255, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            pointer-events: none; /* Hidden by default */
+            opacity: 0;
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 12px;
+            transition: all 0.2s;
+            z-index: 3000;
+        }
+        #ui-toggle.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        #ui-toggle:hover {
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+        
+        .ui-hidden {
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+        
+        /* Smooth transition for UI elements */
+        #status-log, #mood-indicator {
+            transition: opacity 0.3s ease-in-out;
+        }
     </style>
     <!-- Layer 4: The Engine -->
     <script type="importmap">
@@ -137,13 +175,14 @@
 <body>
     <!-- Layer 3: The Stage -->
     <div id="ui-layer">
-        <div id="mood-indicator">
+        <button id="ui-toggle">Show UI</button>
+        <div id="mood-indicator" class="ui-hidden">
             <div id="mood-label">Neutral</div>
             <div id="mood-bar-container">
                 <div id="mood-bar"></div>
             </div>
         </div>
-        <div id="status-log"></div>
+        <div id="status-log" class="ui-hidden"></div>
         <div id="chat-anchor" style="position: absolute; top: 0; left: 0; width: 0; height: 0; pointer-events: none; z-index: 2000;">
             <div id="chat-bubble" class="chat-bubble">Hello? Is anyone there?</div>
         </div>
@@ -332,6 +371,7 @@
                 };
                 
                 this.statusLog = document.getElementById('status-log');
+                this.uiToggle = document.getElementById('ui-toggle');
                 this.logStatus("System Initialized.");
             }
 
@@ -380,13 +420,13 @@
                     this.isThinking = false;
                     this.attentionTimeout = now + 5000;
                     
-                    this.chatElement.innerText = "Yes?";
-                    this.chatElement.classList.add('visible');
+                    // Silent attention
                 } else if (this.attentionState === 'WATCHING') {
                     // Second Click: Come to Center
                     this.attentionState = 'CENTERED';
                     this.attentionTimeout = now + 5000;
                     this.chatElement.innerText = "I'm listening.";
+                    this.uiToggle.classList.add('visible'); // Show Toggle Button
                 } else {
                     // Already Centered? Refresh timer
                     this.attentionTimeout = now + 5000;
@@ -798,6 +838,7 @@
                     if (Date.now() > this.attentionTimeout) {
                         this.attentionState = 'NONE';
                         this.chatElement.classList.remove('visible');
+                        this.uiToggle.classList.remove('visible'); // Hide Toggle Button
                     } else {
                         // Return Override Instruction
                         return { 
@@ -1005,6 +1046,25 @@
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // UI Toggle Logic
+        const uiToggle = document.getElementById('ui-toggle');
+        const uiElements = [
+            document.getElementById('status-log'), 
+            document.getElementById('mood-indicator')
+        ];
+
+        uiToggle.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent click from passing to 3D scene
+            const isHidden = uiElements[0].classList.contains('ui-hidden');
+            
+            uiElements.forEach(el => {
+                if (isHidden) el.classList.remove('ui-hidden');
+                else el.classList.add('ui-hidden');
+            });
+            
+            uiToggle.innerText = isHidden ? "Hide UI" : "Show UI";
         });
     </script>
 </body>
