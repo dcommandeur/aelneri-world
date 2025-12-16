@@ -312,15 +312,23 @@
                 this.emotions = {
                     // Heavy/Long
                     'ANGER': { color: 0xff0000, duration: 4000, message: "Grrr..." },
-                    'PASSION': { color: 0xff1493, duration: 4000, message: "<3" },
+                    'PASSION': { color: 0xc71585, duration: 4000, message: "<3" }, // Deep Pink -> Medium Violet Red
                     'HAPPY': { color: 0xffd700, duration: 3500, message: ":D" },
-                    'SAD': { color: 0x4169e1, duration: 4000, message: ":(" },
+                    'SAD': { color: 0x1e90ff, duration: 4000, message: ":(" }, // Royal Blue -> Dodger Blue
+                    'TIRED': { color: 0x708090, duration: 4500, message: "..." }, // New: Slate Gray
+                    
                     // Light/Short
-                    'GLAD': { color: 0xffffe0, duration: 1500, message: "^_^" },
-                    'POSITIVE': { color: 0x32cd32, duration: 1500, message: "+" },
-                    'NEGATIVE': { color: 0x808080, duration: 1500, message: "-" },
-                    'YES': { color: 0x00ffff, duration: 1000, message: "Yes!" },
-                    'NO': { color: 0xff8c00, duration: 1000, message: "No." }
+                    'GLAD': { color: 0x98fb98, duration: 1500, message: "^_^" }, // Pale Green
+                    'POSITIVE': { color: 0x00ff00, duration: 1500, message: "+" }, // Lime
+                    'NEGATIVE': { color: 0x696969, duration: 1500, message: "-" }, // Dim Gray
+                    'YES': { color: 0x00ced1, duration: 1000, message: "Yes!" }, // Dark Turquoise
+                    'NO': { color: 0xff4500, duration: 1000, message: "No." }, // Orange Red
+                    
+                    // Complex
+                    'CONFUSED': { color: 0xda70d6, duration: 3000, message: "?" }, // Orchid
+                    'CURIOUS': { color: 0x20b2aa, duration: 2500, message: "O.o" }, // Light Sea Green
+                    'EXCITED': { color: 0xff69b4, duration: 2000, message: "!!!" }, // Hot Pink
+                    'SICK': { color: 0x9acd32, duration: 3000, message: "x_x" } // Yellow Green
                 };
                 
                 this.statusLog = document.getElementById('status-log');
@@ -499,6 +507,28 @@
                         ability.target.rotationSpeed = { x: 0, y: 0.5 }; // Fast Y spin
                         break;
 
+                    case 'TRICK_FLIP': // New
+                        ability.duration = 1500;
+                        ability.target.specialEffect = 'FLIP';
+                        ability.target.rotationSpeed = { x: 0.5, y: 0 }; // Fast X spin
+                        break;
+
+                    case 'TRICK_SHAKE': // New
+                        ability.duration = 1000;
+                        ability.target.specialEffect = 'SHAKE';
+                        break;
+
+                    case 'TRICK_PULSE': // New
+                        ability.duration = 2000;
+                        ability.target.specialEffect = 'PULSE';
+                        break;
+
+                    case 'HIDE': // New
+                        ability.duration = 3000;
+                        ability.target.scale = new THREE.Vector3(0.1, 0.1, 0.1);
+                        ability.message = "Hiding...";
+                        break;
+
                     case 'SUMMON_TOY':
                         ability.duration = 1000;
                         ability.target.specialEffect = 'SUMMON';
@@ -543,7 +573,10 @@
                 const playBias = Math.min(this.toy.stats.plays * 0.01, 0.2); // Cap at 20% bonus
                 
                 if (intent === 'IDLE' && !this.toy.active && Math.random() > (0.7 - playBias)) {
-                    const tricks = ['TRICK_BOUNCE', 'TRICK_SPIN', 'SUMMON_TOY', 'CHANGE_COLOR', 'MOOD_REFLEX', 'SPEAK'];
+                    const tricks = [
+                        'TRICK_BOUNCE', 'TRICK_SPIN', 'TRICK_FLIP', 'TRICK_SHAKE', 'TRICK_PULSE', 
+                        'HIDE', 'SUMMON_TOY', 'CHANGE_COLOR', 'MOOD_REFLEX', 'SPEAK'
+                    ];
                     const randomTrick = tricks[Math.floor(Math.random() * tricks.length)];
                     this.particles.push(this.createAbility(randomTrick));
                 }
@@ -897,15 +930,33 @@
                 else if (instruction.state === 'acting') {
                     const target = instruction.data;
 
-                    // Move towards target position
-                    icon.position.lerp(target.position, 0.02);
+                    // 1. Position & Physics Effects
+                    if (target.specialEffect === 'BOUNCE') {
+                        const bounce = Math.abs(Math.sin(time * 0.005)) * 1.5;
+                        icon.position.y = THREE.MathUtils.lerp(icon.position.y, bounce - 1, 0.1);
+                        icon.position.x = THREE.MathUtils.lerp(icon.position.x, target.position.x, 0.05);
+                        icon.position.z = THREE.MathUtils.lerp(icon.position.z, target.position.z, 0.05);
+                    } else {
+                        icon.position.lerp(target.position, 0.02);
+                    }
                     
-                    // Rotate based on plan
-                    icon.rotation.x += target.rotationSpeed.x;
-                    icon.rotation.y += target.rotationSpeed.y;
+                    // 2. Rotation & Physics Effects
+                    if (target.specialEffect === 'SHAKE') {
+                        icon.rotation.z = Math.sin(time * 0.02) * 0.5; // Wobble
+                        icon.rotation.x = THREE.MathUtils.lerp(icon.rotation.x, 0, 0.1);
+                        icon.rotation.y = THREE.MathUtils.lerp(icon.rotation.y, 0, 0.1);
+                    } else {
+                        icon.rotation.x += target.rotationSpeed.x;
+                        icon.rotation.y += target.rotationSpeed.y;
+                    }
                     
-                    // Scale towards target
-                    icon.scale.lerp(target.scale, 0.02);
+                    // 3. Scale & Physics Effects
+                    if (target.specialEffect === 'PULSE') {
+                        const pulse = 1 + Math.sin(time * 0.01) * 0.3;
+                        icon.scale.setScalar(pulse);
+                    } else {
+                        icon.scale.lerp(target.scale, 0.02);
+                    }
 
                     // Color Logic
                     if (target.colorOverride) {
