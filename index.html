@@ -306,16 +306,71 @@
         frontArc.position.set(-cx, cy, 0.11);
         icon.add(frontArc);
 
-        // 5. The Toy (The Ball)
+        // 5. The Toys
+        // A. The Ball
         const ballGeometry = new THREE.SphereGeometry(0.2, 32, 32);
         const ballMaterial = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.8, roughness: 0.2 }); // Gold ball
         const ball = new THREE.Mesh(ballGeometry, ballMaterial);
         ball.visible = false;
         scene.add(ball);
 
+        // B. The Gummy Bear
+        function createGummyBear() {
+            const bearGroup = new THREE.Group();
+            const material = new THREE.MeshPhysicalMaterial({
+                color: 0xff3333, // Red Gummy
+                metalness: 0,
+                roughness: 0.2,
+                transmission: 0.9, // Glass-like
+                thickness: 1
+            });
+
+            // Body
+            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 0.3, 32), material);
+            body.position.y = 0.15;
+            bearGroup.add(body);
+
+            // Head
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 32, 32), material);
+            head.position.y = 0.45;
+            bearGroup.add(head);
+
+            // Ears
+            const earGeo = new THREE.SphereGeometry(0.06, 32, 32);
+            const earL = new THREE.Mesh(earGeo, material);
+            earL.position.set(-0.12, 0.6, 0);
+            const earR = new THREE.Mesh(earGeo, material);
+            earR.position.set(0.12, 0.6, 0);
+            bearGroup.add(earL);
+            bearGroup.add(earR);
+
+            // Limbs
+            const limbGeo = new THREE.SphereGeometry(0.08, 32, 32);
+            const armL = new THREE.Mesh(limbGeo, material);
+            armL.position.set(-0.2, 0.25, 0);
+            const armR = new THREE.Mesh(limbGeo, material);
+            armR.position.set(0.2, 0.25, 0);
+            const legL = new THREE.Mesh(limbGeo, material);
+            legL.position.set(-0.1, 0, 0);
+            const legR = new THREE.Mesh(limbGeo, material);
+            legR.position.set(0.1, 0, 0);
+            
+            bearGroup.add(armL);
+            bearGroup.add(armR);
+            bearGroup.add(legL);
+            bearGroup.add(legR);
+
+            // Scale down to match ball size approx
+            bearGroup.scale.set(0.8, 0.8, 0.8);
+            return bearGroup;
+        }
+        const bear = createGummyBear();
+        bear.visible = false;
+        scene.add(bear);
+
         // 6. The Decision Engine (The Brain)
         class DecisionEngine {
-            constructor(toyMesh) {
+            constructor(ballMesh, bearMesh) {
                 this.memory = []; 
                 this.particles = []; 
                 this.currentPlan = null; 
@@ -332,10 +387,13 @@
                 this.moodLabel = document.getElementById('mood-label');
                 this.moodBar = document.getElementById('mood-bar');
                 this.currentMood = { name: 'Neutral', endTime: 0, duration: 0 };
+                this.statusLog = document.getElementById('status-log');
+                this.uiToggle = document.getElementById('ui-toggle');
 
                 // Toy System
+                this.availableToys = { 'ball': ballMesh, 'bear': bearMesh };
                 this.toy = {
-                    mesh: toyMesh,
+                    mesh: ballMesh, // Default
                     active: false,
                     stats: JSON.parse(localStorage.getItem('toyStats')) || { plays: 0 },
                     kickCount: 0,
@@ -573,6 +631,14 @@
                         ability.duration = 1000;
                         ability.target.specialEffect = 'SUMMON';
                         ability.message = "I want to play!"; // This will be logged as speech
+                        ability.toyType = 'ball';
+                        break;
+
+                    case 'SUMMON_BEAR':
+                        ability.duration = 1000;
+                        ability.target.specialEffect = 'SUMMON';
+                        ability.message = "A present!"; 
+                        ability.toyType = 'bear';
                         break;
 
                     case 'SPEAK': // New Generic Speak Ability
@@ -615,7 +681,7 @@
                 if (intent === 'IDLE' && !this.toy.active && Math.random() > (0.7 - playBias)) {
                     const tricks = [
                         'TRICK_BOUNCE', 'TRICK_SPIN', 'TRICK_FLIP', 'TRICK_SHAKE', 'TRICK_PULSE', 
-                        'HIDE', 'SUMMON_TOY', 'CHANGE_COLOR', 'MOOD_REFLEX', 'SPEAK'
+                        'HIDE', 'SUMMON_TOY', 'SUMMON_BEAR', 'CHANGE_COLOR', 'MOOD_REFLEX', 'SPEAK'
                     ];
                     const randomTrick = tricks[Math.floor(Math.random() * tricks.length)];
                     this.particles.push(this.createAbility(randomTrick));
@@ -772,8 +838,14 @@
                     }
 
                     // Execute Ability Side Effects
-                    if (bestParticle.type === 'SUMMON_TOY') {
-                        this.logStatus("I want to play!", 'speak'); // Explicitly log the speech part
+                    if (bestParticle.type === 'SUMMON_TOY' || bestParticle.type === 'SUMMON_BEAR') {
+                        this.logStatus(bestParticle.message, 'speak'); // Explicitly log the speech part
+                        
+                        // Switch Toy Mesh
+                        this.toy.mesh.visible = false; // Hide current
+                        const toyType = bestParticle.toyType || 'ball';
+                        this.toy.mesh = this.availableToys[toyType];
+                        
                         this.toy.active = true;
                         this.toy.kickCount = 0;
                         this.toy.ballVelocity.set(0,0,0);
@@ -896,7 +968,7 @@
             }
         }
 
-        const brain = new DecisionEngine(ball);
+        const brain = new DecisionEngine(ball, bear);
 
         // Interaction Setup
         const raycaster = new THREE.Raycaster();
@@ -912,11 +984,12 @@
         window.addEventListener('click', (event) => {
             raycaster.setFromCamera(mouse, camera);
 
-            // 1. Check Ball Click
+            // 1. Check Toy Click
             if (brain.toy.active) {
-                const ballIntersects = raycaster.intersectObject(ball);
-                if (ballIntersects.length > 0) {
-                    // User kicked the ball!
+                // Check against the current active toy mesh (could be a group)
+                const toyIntersects = raycaster.intersectObject(brain.toy.mesh, true); // Recursive for groups
+                if (toyIntersects.length > 0) {
+                    // User kicked the toy!
                     const kickDir = new THREE.Vector3(
                         (Math.random() - 0.5),
                         (Math.random() - 0.5),
@@ -927,7 +1000,7 @@
                     brain.toy.kickCount++; 
                     brain.currentPlan = null;
                     brain.isThinking = false;
-                    return; // Ball click takes precedence
+                    return; // Toy click takes precedence
                 }
             }
 
