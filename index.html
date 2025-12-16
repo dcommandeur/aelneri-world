@@ -24,16 +24,21 @@
         }
 
         .chat-bubble {
+            position: absolute;
+            bottom: 20px; /* Start above the anchor */
+            left: 0;
             background: rgba(255, 255, 255, 0.9);
             color: #1d1e18;
             padding: 1rem 1.5rem;
             border-radius: 1rem 1rem 1rem 0; /* Point bottom-left */
             max-width: 300px;
+            width: max-content;
             opacity: 0;
-            transform: translateY(20px) scale(0.9);
-            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transform: translateY(10px) scale(0.9);
+            transition: opacity 0.4s, transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             box-shadow: 0 4px 15px rgba(0,0,0,0.2);
             font-weight: 500;
+            pointer-events: none;
         }
 
         .chat-bubble.visible {
@@ -70,6 +75,8 @@
         
         .log-emote { color: #ff8c00; } /* Orange for Actions/Emotes */
         .log-speak { color: #ffffff; } /* White for Speech */
+        .log-grey { color: #888888; } /* Grey for Standard Moves */
+        .log-green { color: #00ff00; } /* Green for Success/Interaction */
         
         #status-log::-webkit-scrollbar {
             width: 6px;
@@ -93,7 +100,9 @@
     <!-- Layer 3: The Stage -->
     <div id="ui-layer">
         <div id="status-log"></div>
-        <div id="chat-bubble" class="chat-bubble">Hello? Is anyone there?</div>
+        <div id="chat-anchor" style="position: absolute; top: 0; left: 0; width: 0; height: 0; pointer-events: none; z-index: 2000;">
+            <div id="chat-bubble" class="chat-bubble">Hello? Is anyone there?</div>
+        </div>
     </div>
     <script type="module">
         import * as THREE from 'three';
@@ -234,6 +243,7 @@
                 this.lastInteractionTime = Date.now();
                 this.hasGreeted = false;
                 this.chatElement = document.getElementById('chat-bubble');
+                this.chatAnchor = document.getElementById('chat-anchor');
                 
                 // Toy System
                 this.toy = {
@@ -268,8 +278,11 @@
                 this.logStatus("System Initialized.");
             }
 
-            logStatus(message) {
+            logStatus(message, type = 'default') {
                 const entry = document.createElement('div');
+                entry.className = 'log-entry';
+                if (type !== 'default') entry.classList.add(`log-${type}`);
+
                 const time = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
                 entry.innerText = `[${time}] ${message}`;
                 this.statusLog.appendChild(entry);
@@ -341,6 +354,7 @@
                 
                 if (Math.random() < collectChance) {
                     // COLLECT
+                    this.logStatus("Got Ball!", 'green');
                     this.toy.active = false;
                     this.toy.mesh.visible = false;
                     this.toy.stats.plays++;
@@ -353,6 +367,7 @@
                     this.isThinking = false; // Force immediate rethink
                 } else {
                     // KICK
+                    this.logStatus("Hit Ball!", 'green');
                     this.toy.kickCount++;
                     this.toy.cooldown = 30; // Ignore collision for 0.5s
                     
@@ -462,6 +477,20 @@
                     this.particles.push(this.createAbility(randomTrick));
                 }
 
+                // Special Case: GREET is now a specific Ability
+                if (intent === 'GREET') {
+                    const greet = this.createAbility('SPEAK');
+                    greet.message = "Hello? I'm waiting for input...";
+                    // Override target to be bottom-left (classic greeting spot)
+                    greet.target.position.set(
+                        -1.5 - Math.random(),
+                        -1.0 - Math.random() * 0.5,
+                        1 + Math.random()
+                    );
+                    this.particles.push(greet);
+                    return; // Skip chaos generation
+                }
+
                 for(let i=0; i<particleCount; i++) {
                     let p = {
                         // Common traits
@@ -474,16 +503,7 @@
                     };
 
                     // Context-Aware Generation
-                    if (intent === 'GREET') {
-                        // Intent: Move to bottom-left to speak
-                        p.x = -1.5 - Math.random(); 
-                        p.y = -1.0 - Math.random() * 0.5;
-                        p.z = 1 + Math.random(); 
-                        p.waitBefore = Math.random() * 5000; 
-                        p.message = "Hello? I'm waiting for input...";
-                        p.actionType = 'SPEAK';
-                    } 
-                    else if (intent === 'FETCH') {
+                    if (intent === 'FETCH') {
                         // Intent: Go to the Ball!
                         // Target area: Near the ball's position
                         const ballPos = this.toy.mesh.position;
@@ -592,6 +612,13 @@
                     }
                 } else {
                     // Standard Particle Mapping
+                    let actionDesc = "Move";
+                    if (bestParticle.scale > 1.1) actionDesc += ", Grow";
+                    else if (bestParticle.scale < 0.9) actionDesc += ", Shrink";
+                    if (Math.abs(bestParticle.rX) > 0.01 || Math.abs(bestParticle.rY) > 0.01) actionDesc += ", Rotate";
+                    
+                    this.logStatus(`Decided to: ${actionDesc}`, 'grey');
+
                     this.currentPlan = {
                         type: bestParticle.actionType,
                         startTime: time + bestParticle.waitBefore,
@@ -766,6 +793,21 @@
                     const newH = THREE.MathUtils.lerp(currentParams.h, targetHSL.h, 0.05);
                     icon.material.color.setHSL(newH, targetHSL.s, targetHSL.l);
                 }
+
+            // Update Chat Bubble Position
+            if (brain.chatElement.classList.contains('visible')) {
+                // Calculate position above the icon's "head" (Local Y axis)
+                const vector = new THREE.Vector3(0, 1.2, 0);
+                vector.applyMatrix4(icon.matrixWorld);
+                vector.project(camera);
+
+                const x = (vector.x * .5 + .5) * window.innerWidth;
+                const y = (-(vector.y * .5) + .5) * window.innerHeight;
+
+                brain.chatAnchor.style.left = `${x}px`;
+                brain.chatAnchor.style.top = `${y}px`;
+            }
+
             renderer.render(scene, camera);
         }
         animate(0);
