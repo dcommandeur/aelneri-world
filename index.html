@@ -40,6 +40,44 @@
             opacity: 1;
             transform: translateY(0) scale(1);
         }
+
+        #status-log {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            width: 300px;
+            min-height: 100px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Consolas', monospace;
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 8px;
+            pointer-events: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #ff8c00 rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            z-index: 1000; /* Ensure it's on top */
+            color: #ff8c00; /* Default text color fallback */
+        }
+        
+        .log-entry {
+            line-height: 1.4;
+        }
+        
+        .log-emote { color: #ff8c00; } /* Orange for Actions/Emotes */
+        .log-speak { color: #ffffff; } /* White for Speech */
+        
+        #status-log::-webkit-scrollbar {
+            width: 6px;
+        }
+        #status-log::-webkit-scrollbar-thumb {
+            background-color: #ff8c00;
+            border-radius: 3px;
+        }
     </style>
     <!-- Layer 4: The Engine -->
     <script type="importmap">
@@ -54,6 +92,7 @@
 <body>
     <!-- Layer 3: The Stage -->
     <div id="ui-layer">
+        <div id="status-log"></div>
         <div id="chat-bubble" class="chat-bubble">Hello? Is anyone there?</div>
     </div>
     <script type="module">
@@ -209,6 +248,33 @@
                 // Attention System
                 this.attentionState = 'NONE'; // NONE, WATCHING, CENTERED
                 this.attentionTimeout = 0;
+
+                // Emotion System
+                this.emotions = {
+                    // Heavy/Long
+                    'ANGER': { color: 0xff0000, duration: 4000, message: "Grrr..." },
+                    'PASSION': { color: 0xff1493, duration: 4000, message: "<3" },
+                    'HAPPY': { color: 0xffd700, duration: 3500, message: ":D" },
+                    'SAD': { color: 0x4169e1, duration: 4000, message: ":(" },
+                    // Light/Short
+                    'GLAD': { color: 0xffffe0, duration: 1500, message: "^_^" },
+                    'POSITIVE': { color: 0x32cd32, duration: 1500, message: "+" },
+                    'NEGATIVE': { color: 0x808080, duration: 1500, message: "-" },
+                    'YES': { color: 0x00ffff, duration: 1000, message: "Yes!" },
+                    'NO': { color: 0xff8c00, duration: 1000, message: "No." }
+                };
+                
+                this.statusLog = document.getElementById('status-log');
+                this.logStatus("System Initialized.");
+            }
+
+            logStatus(message) {
+                const entry = document.createElement('div');
+                const time = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                entry.innerText = `[${time}] ${message}`;
+                this.statusLog.appendChild(entry);
+                this.statusLog.scrollTop = this.statusLog.scrollHeight;
+                this.emotionStats = JSON.parse(localStorage.getItem('emotionStats')) || {};
             }
 
             handleUserClick() {
@@ -350,7 +416,32 @@
                     case 'SUMMON_TOY':
                         ability.duration = 1000;
                         ability.target.specialEffect = 'SUMMON';
-                        ability.message = "I want to play!";
+                        ability.message = "I want to play!"; // This will be logged as speech
+                        break;
+
+                    case 'SPEAK': // New Generic Speak Ability
+                        ability.duration = 3000;
+                        ability.target.lookAtCamera = true;
+                        ability.message = "I am learning to speak."; // Default placeholder
+                        break;
+
+                    case 'CHANGE_COLOR': // Voluntary (Desire)
+                        ability.duration = 2000;
+                        ability.target.colorShift = Math.random(); // Pick a random hue preference
+                        ability.message = null; 
+                        break;
+
+                    case 'MOOD_REFLEX': // Involuntary (Reaction)
+                        // Simulates a mood swing or reaction
+                        const moods = Object.keys(this.emotions);
+                        const randomMood = moods[Math.floor(Math.random() * moods.length)];
+                        const emo = this.emotions[randomMood];
+                        
+                        ability.duration = emo.duration;
+                        ability.target.colorOverride = new THREE.Color(emo.color);
+                        ability.target.lookAtCamera = true; // Reflexively look at user
+                        ability.message = null; // Silent emotion for now
+                        ability.mood = randomMood; // Store for memory
                         break;
                 }
                 return ability;
@@ -366,7 +457,7 @@
                 const playBias = Math.min(this.toy.stats.plays * 0.01, 0.2); // Cap at 20% bonus
                 
                 if (intent === 'IDLE' && !this.toy.active && Math.random() > (0.7 - playBias)) {
-                    const tricks = ['EMOTE_ALERT', 'TRICK_BOUNCE', 'TRICK_SPIN', 'SUMMON_TOY'];
+                    const tricks = ['TRICK_BOUNCE', 'TRICK_SPIN', 'SUMMON_TOY', 'CHANGE_COLOR', 'MOOD_REFLEX', 'SPEAK'];
                     const randomTrick = tricks[Math.floor(Math.random() * tricks.length)];
                     this.particles.push(this.createAbility(randomTrick));
                 }
@@ -464,6 +555,13 @@
                 
                 // Commit Plan
                 if (bestParticle.isAbility) {
+                    // Log based on ability type
+                    if (bestParticle.type === 'SPEAK') {
+                        this.logStatus(bestParticle.message, 'speak');
+                    } else {
+                        this.logStatus(`Running Ability: ${bestParticle.type}`, 'emote');
+                    }
+
                     this.currentPlan = {
                         type: bestParticle.type,
                         startTime: time + bestParticle.waitBefore,
@@ -474,6 +572,7 @@
 
                     // Execute Ability Side Effects
                     if (bestParticle.type === 'SUMMON_TOY') {
+                        this.logStatus("I want to play!", 'speak'); // Explicitly log the speech part
                         this.toy.active = true;
                         this.toy.kickCount = 0;
                         this.toy.ballVelocity.set(0,0,0);
@@ -483,6 +582,13 @@
                             (Math.random() - 0.5) * 3,
                             (Math.random() - 0.5) * 2
                         );
+                    } else if (bestParticle.type === 'MOOD_REFLEX') {
+                        // Memory: Remember this mood swing
+                        const mood = bestParticle.mood;
+                        if (mood) {
+                            this.emotionStats[mood] = (this.emotionStats[mood] || 0) + 1;
+                            localStorage.setItem('emotionStats', JSON.stringify(this.emotionStats));
+                        }
                     }
                 } else {
                     // Standard Particle Mapping
